@@ -1,132 +1,133 @@
 import ollama
 import numpy as np
 
-# --- CONFIGURAÇÃO INICIAL ---
-# Define os modelos que serão usados
-MODELO_EMBEDDING = 'nomic-embed-text'
-MODELO_LLM = 'gemma:2b'
+# --- INITIAL SETUP ---
+# Define the models to be used
+EMBEDDING_MODEL = 'nomic-embed-text:v1.5'
+LLM_MODEL = 'gemma:2b'
 
-# Nome do arquivo da base de conhecimento
-ARQUIVO_CONHECIMENTO = 'biology.txt'
+# Name of the knowledge base file
+KNOWLEDGE_BASE_FILE = 'biology.txt'
 
-# Variáveis globais para armazenar os dados processados
-chunks_processados = []
+# Global variable to store the processed data
+processed_chunks = []
 
-def processar_base_conhecimento():
+def process_knowledge_base():
     """
-    Lê o arquivo de texto, divide em "chunks" (partes), gera embeddings para cada um
-    e armazena em memória. Este é um passo de pré-processamento.
+    Reads the text file, splits it into chunks, generates embeddings for each,
+    and stores them in memory. This is a pre-processing step.
     """
-    global chunks_processados
+    global processed_chunks
     try:
-        with open(ARQUIVO_CONHECIMENTO, 'r', encoding='utf-8') as f:
-            # Divide o texto por linhas, tratando cada linha como um "documento"
-            conteudo = f.read()
-            # Dividindo por parágrafos (duas quebras de linha) ou linhas
-            chunks = conteudo.strip().split('\n')
+        with open(KNOWLEDGE_BASE_FILE, 'r', encoding='utf-8') as f:
+            # Reads the file content
+            content = f.read()
+            # Splits the text by new lines, treating each line as a "document"
+            chunks = content.strip().split('\n')
 
-            print(f"Processando {len(chunks)} trechos do documento...")
+            print(f"Processing {len(chunks)} chunks from the document...")
 
             for chunk in chunks:
-                if chunk.strip(): # Ignora linhas vazias
-                    # Gera o embedding para o chunk de texto
+                if chunk.strip(): # Ignore empty lines
+                    # Generate the embedding for the text chunk
                     embedding = ollama.embeddings(
-                        model=MODELO_EMBEDDING,
+                        model=EMBEDDING_MODEL,
                         prompt=chunk
                     )['embedding']
                     
-                    # Armazena o texto original e seu embedding correspondente
-                    chunks_processados.append({
-                        'texto': chunk,
+                    # Store the original text and its corresponding embedding
+                    processed_chunks.append({
+                        'text': chunk,
                         'embedding': np.array(embedding)
                     })
-            print("Base de conhecimento processada com sucesso!")
+            print("Knowledge base processed successfully!")
 
     except FileNotFoundError:
-        print(f"Erro: Arquivo '{ARQUIVO_CONHECIMENTO}' não encontrado.")
+        print(f"Error: File '{KNOWLEDGE_BASE_FILE}' not found.")
         exit()
 
 
-def encontrar_contexto_relevante(pergunta_usuario, top_k=2):
+def find_relevant_context(user_question, top_k=2):
     """
-    Encontra os 'top_k' chunks mais relevantes para a pergunta do usuário.
+    Finds the 'top_k' most relevant chunks for the user's question.
     """
-    if not chunks_processados:
+    if not processed_chunks:
         return ""
 
-    # 1. Gera o embedding para a pergunta do usuário
-    embedding_pergunta = np.array(ollama.embeddings(
-        model=MODELO_EMBEDDING,
-        prompt=pergunta_usuario
+    # 1. Generate the embedding for the user's question
+    question_embedding = np.array(ollama.embeddings(
+        model=EMBEDDING_MODEL,
+        prompt=user_question
     )['embedding'])
 
-    # 2. Calcula a similaridade de cossenos entre a pergunta e todos os chunks
-    # A similaridade de cossenos é uma boa métrica para comparar vetores
-    similaridades = []
-    for chunk in chunks_processados:
-        # Produto escalar entre vetores normalizados é a similaridade de cossenos
-        sim = np.dot(embedding_pergunta, chunk['embedding']) / (np.linalg.norm(embedding_pergunta) * np.linalg.norm(chunk['embedding']))
-        similaridades.append(sim)
+    # 2. Calculate the cosine similarity between the question and all chunks
+    # Cosine similarity is a good metric to compare vectors
+    similarities = []
+    for chunk in processed_chunks:
+        # The dot product of normalized vectors is the cosine similarity
+        sim = np.dot(question_embedding, chunk['embedding']) / (np.linalg.norm(question_embedding) * np.linalg.norm(chunk['embedding']))
+        similarities.append(sim)
 
-    # 3. Encontra os índices dos chunks mais similares
-    indices_mais_relevantes = np.argsort(similaridades)[-top_k:][::-1]
+    # 3. Find the indices of the most similar chunks
+    most_relevant_indices = np.argsort(similarities)[-top_k:][::-1]
 
-    # 4. Concatena os textos dos chunks mais relevantes para formar o contexto
-    contexto = "\n".join([chunks_processados[i]['texto'] for i in indices_mais_relevantes])
-    return contexto
+    # 4. Join the texts of the most relevant chunks to form the context
+    context = "\n".join([processed_chunks[i]['text'] for i in most_relevant_indices])
+    return context
 
 
 def chatbot():
     """
-    Função principal que executa o loop de interação com o usuário.
+    Main function that runs the user interaction loop.
     """
-    print("--- Chatbot Educacional de Biologia ---")
-    print("Olá! Faça uma pergunta sobre biologia ou digite 'sair' para encerrar.")
+    print("--- Educational Marine Biology Chatbot ---")
+    print("Hello! Ask a question about marine biology or type 'exit' to quit.")
 
     while True:
-        # Permite a interação no terminal
-        pergunta = input("\nVocê: ").strip()
+        # Allows interaction in the terminal
+        question = input("\nYou: ").strip()
 
-        # Permite que o usuário encerre a conversa
-        if pergunta.lower() == 'sair':
-            print("Chatbot: Até a próxima!")
+        # Allows the user to end the conversation
+        if question.lower() == 'exit':
+            print("Chatbot: Goodbye!")
             break
 
-        # Passo 1: Encontrar o contexto relevante na base de conhecimento
-        contexto_relevante = encontrar_contexto_relevante(pergunta)
+        # Step 1: Find the relevant context in the knowledge base
+        relevant_context = find_relevant_context(question)
 
-        # Passo 2: Montar o prompt para o modelo generativo
-        prompt_final = f"""
-        Você é um assistente educacional. Use APENAS o contexto fornecido abaixo para responder à pergunta do usuário.
-        Se a resposta não estiver no contexto, diga "Desculpe, não tenho informações sobre isso no meu material.".
-        Sua resposta deve ser curta, simples, didática e objetiva, ideal para quem está aprendendo.
+        # Step 2: Build the prompt for the generative 
+        system_prompt = f"""
+        You are an educational assistant. Use ONLY the context provided below to answer the user's question.
+        Your answer should be short, simple, didactic, and objective, ideal for a learner and **always use emoji**.
+        If the answer is not in the context, say "Sorry, I do not have information about that in the provided material."."""
+        
+        final_prompt = f"""**Context:**
+        {relevant_context}
 
-        **Contexto:**
-        {contexto_relevante}
+        **Question:**
+        {question}
 
-        **Pergunta:**
-        {pergunta}
-
-        **Resposta:**
+        **Answer:**
         """
 
-        # Passo 3: Chamar o modelo generativo (LLM) para obter a resposta final
-        print("Chatbot: Pensando...")
+        # Step 3: Call the generative model (LLM) to get the final answer
+        print("Chatbot: Thinking...")
         
-        # Usando o ollama.chat para um formato de conversação
+        # Using ollama.chat for a conversational format
         response = ollama.chat(
-            model=MODELO_LLM,
+            model=LLM_MODEL,
             messages=[
-                {'role': 'user', 'content': prompt_final}
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': final_prompt}
             ]
         )
         
-        # Respostas coerentes com o contexto definido
+        # Print the chatbot's answer
         print(f"Chatbot: {response['message']['content']}")
 
 
 if __name__ == "__main__":
-    # Pré-processa a base de conhecimento uma vez no início
-    processar_base_conhecimento()
-    # Inicia o chatbot
+    # Pre-process the knowledge base once at the start
+    process_knowledge_base()
+    # Start the chatbot
     chatbot()
